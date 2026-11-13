@@ -30,8 +30,8 @@ android {
         // API 18 predates native multidex; keep the launcher installable on 4.3.
         multiDexEnabled = true
         targetSdk = 37
-        versionCode = if (gl19Release) 7 else if (gl19AudioTest == "aopus") 2 else 1
-        versionName = "0.1.4"
+        versionCode = if (gl19Release) 8 else if (gl19AudioTest == "aopus") 2 else 1
+        versionName = "0.1.5"
         manifestPlaceholders["diplayAppLabel"] = when (gl19AudioTest) {
             "aopus" -> "CarLink Legacy"
             "a" -> "DiPlay GL19 A 焦点测试"

@@ -66,6 +66,14 @@ class LegacyHomeActivity : Activity() {
     private var autoHotspotStartAttempted = false
     private var autoConnectSteps = 0
     private var authReady = true
+    private var guideShown = false
+    private val uiScale: Float by lazy {
+        when {
+            resources.configuration.screenWidthDp >= 1200 -> 1.35f
+            resources.configuration.screenWidthDp >= 900 -> 1.15f
+            else -> 1f
+        }
+    }
     @Volatile private var snapshot: StatusSnapshot? = null
     private var statusPolling = false
     private val statusPoll = object : Runnable {
@@ -114,6 +122,25 @@ class LegacyHomeActivity : Activity() {
             handler.post(statusPoll)
         }
         maybeAutoConnect()
+        showFirstRunGuide()
+    }
+
+    private fun showFirstRunGuide() {
+        if (guideShown) return
+        guideShown = true
+        val needsPhone = DiPlayPreferences.phoneAddress(this) == null
+        val needsProfile = AirPlayPersistence.loadManualHotspotSsid(this) == null
+        if (!needsPhone && !needsProfile) return
+        AlertDialog.Builder(this)
+            .setTitle("首次使用，三步设置")
+            .setMessage(
+                "1. 在 iPhone 上打开蓝牙，与本车机配对；\n" +
+                    "2. 点“选择 iPhone”，选中已配对的那台；\n" +
+                    "3. 打开车机热点后点“读取车机热点”，保存热点信息。\n\n" +
+                    "之后点“连接 CarPlay”；想上车自动连，就把下面的“打开 CarLink 时连接 / 自动开启车机热点 / 车机启动后打开”都打开。",
+            )
+            .setPositiveButton("知道了", null)
+            .show()
     }
 
     override fun onPause() {
@@ -556,7 +583,7 @@ class LegacyHomeActivity : Activity() {
 
     private fun text(value: String, size: Int, color: Int, bold: Boolean = false) = TextView(this).apply {
         text = value
-        textSize = size.toFloat()
+        textSize = size * uiScale
         setTextColor(color)
         typeface = if (bold) Typeface.create("sans-serif-medium", Typeface.NORMAL)
         else Typeface.create("sans-serif", Typeface.NORMAL)
@@ -590,7 +617,7 @@ class LegacyHomeActivity : Activity() {
 
     private fun space(width: Int) = View(this).apply { layoutParams = LinearLayout.LayoutParams(width, 1) }
 
-    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+    private fun dp(value: Int) = (value * resources.displayMetrics.density * uiScale).toInt()
 
     private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
 

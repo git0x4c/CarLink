@@ -3955,7 +3955,14 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun showDiPlayHome(page: String = "home") {
         controller?.sendTouch(emptyList())
-        startActivity(Intent(this, DiPlayActivity::class.java)
+        // CarLink Legacy: the driver stays in CarLink's screens. "settings" opens CarLink's own
+        // settings; only the Wi-Fi direct recovery page still uses the engine's flow.
+        val target = when (page) {
+            "settings" -> com.shilapi.xcertplay.legacy.LegacySettingsActivity::class.java
+            "wireless-recovery" -> DiPlayActivity::class.java
+            else -> com.shilapi.xcertplay.legacy.LegacyHomeActivity::class.java
+        }
+        startActivity(Intent(this, target)
             .putExtra("page", page).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
     }
 

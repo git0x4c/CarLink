@@ -1,7 +1,7 @@
 # GL19 实车验证清单
 
 对象：2019 款帝豪 GL / GKUI / Android 4.4.2 / 车机热点 + Android 蓝牙 / iPhone 无线 CarPlay。
-工件：`dist/legacy/CarLink-Legacy-<版本>-ARMv7.apk`（当前 0.1.4，versionCode 7）。
+工件：`dist/legacy/CarLink-Legacy-<版本>-ARMv7.apk`（当前 0.1.5，versionCode 8）。
 前提：包内已注入 CarPlay 认证资产（`assembleStandaloneRelease` 构建）；车机蓝牙里已配对 iPhone。
 
 每一步都在停车状态操作。**"通过"只算实测结果，不算代码推断。**
@@ -32,6 +32,7 @@
 
 ## 2. 首次手动连接
 
+0. 首次打开会弹“三步设置”引导，按提示做即可。
 1. 点"选择 iPhone" → 选已配对的 iPhone（状态行显示已选手机）。
 2. 点"读取车机热点" → 提示已保存（车机热点开着时）。
 3. 点"连接 CarPlay"。
@@ -41,6 +42,7 @@
 2. 音乐能播、导航能出声。
 3. 车机屏幕触控能操作 CarPlay。
 4. 手机端出现"正在使用 CarPlay"。
+5. 在 CarPlay 画面按返回 / 打开设置：应回到 CarLink Legacy 的首页 / 设置页，**不应**出现 DiPlay 的界面。
 
 记录：从点连接到出画面的秒数。
 
