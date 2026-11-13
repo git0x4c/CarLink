@@ -140,7 +140,13 @@ class LegacyHomeActivity : Activity() {
         hotspotRow.addView(action("开启热点") { startHotspot() }, weight(1))
         root.addView(hotspotRow, marginTop(12))
 
-        root.addView(action("连接自检") { showDiagnostics() }, marginTop(12))
+        val toolsRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        toolsRow.addView(action("连接自检") { showDiagnostics() }, weight(1))
+        toolsRow.addView(space(12), LinearLayout.LayoutParams(dp(12), 1))
+        toolsRow.addView(action("设置") {
+            runCatching { startActivity(Intent(this, LegacySettingsActivity::class.java)) }
+        }, weight(1))
+        root.addView(toolsRow, marginTop(12))
 
         root.addView(sectionTitle("自动连接"), marginTop(24))
         autoConnectSwitch = toggleRow(root, "打开 CarLink 时连接", DiPlayPreferences.autoConnect(this)) {

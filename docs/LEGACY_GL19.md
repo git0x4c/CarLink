@@ -24,6 +24,8 @@ vendor/diplay-legacy/
 
 来源：`git0x4c/DiPlay-Geely-Android43` 的 GL19 分支（DiPlay 0.2.10 + API18 适配 + GK19Play 实车修复 + 自动连接）。与 `vendor/diplay`（0.2.22）互不影响：两条产品线不共享 Compose/AndroidX 运行时。
 
+验证包：`dist/legacy/CarLink-Legacy-0.1.1-ARMv7.apk`（versionCode 4，SHA-256 `ed64483f…9b1c34`，含认证资产）。
+
 ### 构建
 
 ```sh
@@ -49,9 +51,17 @@ DIPLAY_AUTH_ASSETS_DIR=/absolute/path/to/assets \
 - 状态卡里有一行**内联自检**（自检：就绪 / 自动连接已关闭 / 还没有保存车机热点信息 / 还没有选择 iPhone / 蓝牙未开启 / 车机热点未开启），每秒刷新；点“连接自检”按钮则显示完整报告与上次自动动作。
 - 开机广播与"打开时连接"都指向这个首页；引擎自带的 `DiPlayActivity` 不再是启动入口（`exported=false`，无 LAUNCHER）。
 
-应用身份：`com.carlink.legacy`（测试变体加 `.a` 等后缀），应用名 `CarLink Legacy`，版本 `0.1.0`。
+应用身份：`com.carlink.legacy`（release 变体 `.a`），应用名 `CarLink Legacy`，当前版本 `0.1.1`。
 
-仍未做：CarLink 主 app 的其余屏幕（Home v2 视觉、设置分组、手机切换、诊断页、更新器）都还没移植；这里的首页是能连 CarPlay 的最小集合。
+**设置页（第二步）**：`LegacySettingsActivity`，原生 View，直接写引擎自己的偏好，下一次连接生效：
+
+| 分组 | 项 |
+|---|---|
+| 画面 | 分辨率（原始 / 80% / 60%）、帧率（30 / 60）、HEVC |
+| 音频 | 音乐缓冲（300 / 500 / 1000 ms）、吉利原厂音频通道（仅检测到 H52 能力时显示） |
+| 关于 | 应用名、版本、包名、适用系统 |
+
+仍未做：CarLink 主 app 的其余屏幕（Home v2 视觉、手机切换、诊断导出、更新器）都还没移植。
 
 ### 当前能力
 
@@ -63,7 +73,7 @@ DIPLAY_AUTH_ASSETS_DIR=/absolute/path/to/assets \
 
 - **其余界面**：首页之外仍是引擎的投影面；CarLink 的 Home v2 视觉、设置分组、诊断与切换器尚未移植。
 - **CarLink 自有能力**：多手机切换、Android Auto、浮动切换器、应用内更新都只在主 app（API 25+）里，Legacy 不含。
-- **实车验证**：Legacy 包在 GL19 上的安装与连接需要上车确认。目前已有的证据：构建成功、APK 属性（minSdk18 / 仅 armv7 / v1+v2 / 认证资产）、launcher 指向新首页、`legacy-common` 与 `legacy-mobile` 的 lint `NewApi=0`、Robolectric 冒烟测试（首页能创建、渲染出"自检："行、走完 pause/stop/destroy）、`legacy-shared`/`legacy-common` 全部单测通过。**仍然没有**在 4.4.2 真机或 Dalvik 模拟器上启动过：本机没有 API19 镜像，`avdmanager` 建 AVD 报 system image 的 `package.xml` 解析错误。
+- **实车验证**：Legacy 包在 GL19 上的安装与连接需要上车确认。目前已有的证据：构建成功、APK 属性（minSdk18 / 仅 armv7 / v1+v2 / 认证资产）、launcher 指向新首页、`legacy-common` 与 `legacy-mobile` 的 lint `NewApi=0`、Robolectric 冒烟测试（首页与设置页都能创建、渲染出预期文案、走完 pause/stop/destroy）、`legacy-shared`/`legacy-common` 全部单测通过。**仍然没有**在 4.4.2 真机或 Dalvik 模拟器上启动过：本机没有 API19 镜像，`avdmanager` 建 AVD 报 system image 的 `package.xml` 解析错误。
 
 ### 许可
 
