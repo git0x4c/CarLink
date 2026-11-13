@@ -24,7 +24,7 @@ vendor/diplay-legacy/
 
 来源：`git0x4c/DiPlay-Geely-Android43` 的 GL19 分支（DiPlay 0.2.10 + API18 适配 + GK19Play 实车修复 + 自动连接）。与 `vendor/diplay`（0.2.22）互不影响：两条产品线不共享 Compose/AndroidX 运行时。
 
-验证包：`dist/legacy/CarLink-Legacy-0.1.5-ARMv7.apk`（versionCode 8，SHA-256 `0eb2b23e…e1534c1`，含认证资产）。
+验证包：`dist/legacy/CarLink-Legacy-0.1.6-ARMv7.apk`（versionCode 9，SHA-256 `06092f30…d59f1dd`，含认证资产）。
 
 诊断报告写到 `DiPlay-diagnostics/` 目录（沿用引擎的清理与命名约定），文件名 `CarLinkLegacy-report-yyyyMMdd-HHmmss.txt`；没有可写外部存储时落到应用私有目录并在弹窗里说明。报告含：设备/系统、连接与自动开关、画面与音频偏好、MFi 状态、自动连接自检与最近动作、开机诊断、音频统计，以及脱敏后的 `diplay.log`。
 
@@ -53,6 +53,8 @@ DIPLAY_AUTH_ASSETS_DIR=/absolute/path/to/assets \
 - 状态：CarPlay 是否连接、蓝牙、已配对 iPhone 数、车机热点状态、已选手机。
 - 操作：连接 CarPlay（进引擎的 `CarPlayHostActivity` 投影面）、断开、选择 iPhone、读取车机热点、开启热点。
 - 自动连接：打开时连接 / 自动开启车机热点 / 车机启动后打开，三个开关直接写引擎既有偏好。
+- 内置热点：点"连接 CarPlay"时若车机热点未开，会先尝试打开它再连接（不再要求先去车机设置）；首页另有"打开车机热点"。自动连接场景下由"自动开启车机热点"开关控制。
+- 热点方式可选：**本地直连**用 Wi-Fi Direct 组（`WirelessHotspotMode.WIFI_P2P`，与 GLAPHotspot 的本地 P2P 同一机制），不提供互联网、不做 NAT，手机继续用移动数据；**车机原厂热点**则是车机自己的 AP。前者在部分固件上可能建组失败，失败就切回原厂热点。
 - 首次使用会弹一次三步引导（配对 → 选手机 → 存热点）。
 - 投影面里的返回与“设置”都回到 CarLink 自己的屏幕（`showDiPlayHome` 已改指向），只有 Wi-Fi Direct 恢复页仍用引擎流程。
 - 按屏幕宽度做了一档缩放（≥900dp ×1.15、≥1200dp ×1.35），1024×600 与 1920×720 车机不会出现“字太小”。
@@ -68,6 +70,7 @@ DIPLAY_AUTH_ASSETS_DIR=/absolute/path/to/assets \
 |---|---|
 | 画面 | 分辨率（原始 / 80% / 60%）、帧率（30 / 60）、HEVC |
 | 音频 | 音乐缓冲（300 / 500 / 1000 ms）、吉利原厂音频通道（仅检测到 H52 能力时显示） |
+| 连接 | 热点方式：车机原厂热点 / 本地直连（Wi-Fi Direct，不接管手机流量） |
 | 诊断 | 导出诊断报告（U 盘优先）、连接自检 |
 | 关于 | 应用名、版本、包名、适用系统 |
 

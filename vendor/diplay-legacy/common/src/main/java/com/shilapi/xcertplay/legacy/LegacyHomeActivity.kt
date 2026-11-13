@@ -50,6 +50,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 class LegacyHomeActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var statusView: TextView
+    private var hotspotRow: View? = null
     private lateinit var readinessView: TextView
     private lateinit var connectButton: Button
     private lateinit var disconnectButton: Button
@@ -136,7 +137,7 @@ class LegacyHomeActivity : Activity() {
             .setMessage(
                 "1. 在 iPhone 上打开蓝牙，与本车机配对；\n" +
                     "2. 点“选择 iPhone”，选中已配对的那台；\n" +
-                    "3. 打开车机热点后点“读取车机热点”，保存热点信息。\n\n" +
+                    "3. 用“打开车机热点”打开热点后点“读取车机热点”保存；或在设置里选“本地直连”。\n\n" +
                     "之后点“连接 CarPlay”；想上车自动连，就把下面的“打开 CarLink 时连接 / 自动开启车机热点 / 车机启动后打开”都打开。",
             )
             .setPositiveButton("知道了", null)
@@ -193,10 +194,10 @@ class LegacyHomeActivity : Activity() {
         phoneButtonView = action(phoneLabel()) { choosePhone() }
         root.addView(phoneButtonView, marginTop(12))
 
-        val hotspotRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        hotspotRow.addView(action("读取车机热点") { readHotspot() }, weight(1))
-        hotspotRow.addView(space(12), LinearLayout.LayoutParams(dp(12), 1))
-        hotspotRow.addView(action("开启热点") { startHotspot() }, weight(1))
+        hotspotRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        (hotspotRow as LinearLayout).addView(action("读取车机热点") { readHotspot() }, weight(1))
+        (hotspotRow as LinearLayout).addView(space(12), LinearLayout.LayoutParams(dp(12), 1))
+        (hotspotRow as LinearLayout).addView(action("打开车机热点") { startHotspot() }, weight(1))
         root.addView(hotspotRow, marginTop(12))
 
         val toolsRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
@@ -264,15 +265,19 @@ class LegacyHomeActivity : Activity() {
             )
             append(" · 已配对 iPhone ").append(current?.iPhones ?: "-").append(" 台")
             append("\n热点 ").append(
-                when (current?.hotspot) {
-                    true -> "已开启"
-                    false -> "未开启"
-                    null -> "状态未知"
+                when {
+                    AirPlayPersistence.loadWirelessHotspotMode(this@LegacyHomeActivity) ==
+                        WirelessHotspotMode.WIFI_P2P -> "本地直连（不接管手机流量，连接时创建）"
+                    current?.hotspot == true -> "已开启"
+                    current?.hotspot == false -> "未开启"
+                    else -> "状态未知"
                 },
             )
             append(" · 已选手机 ").append(if (phone == null) "未选择" else phoneName)
         }
         applyReadiness(current?.readiness)
+        val manualHotspot = AirPlayPersistence.loadWirelessHotspotMode(this) == WirelessHotspotMode.MANUAL
+        hotspotRow?.visibility = if (manualHotspot) View.VISIBLE else View.GONE
         connectButton.isEnabled = !session
         disconnectButton.isEnabled = session
         autoConnectSwitch.isChecked = DiPlayPreferences.autoConnect(this)
@@ -463,6 +468,38 @@ class LegacyHomeActivity : Activity() {
             choosePhone()
             return
         }
+        // Built-in hotspot: in the car-hotspot mode an off AP is opened here instead of asking the
+        // driver to visit the car settings first. P2P mode creates its group inside the session.
+        if (AirPlayPersistence.loadWirelessHotspotMode(this) == WirelessHotspotMode.MANUAL &&
+            snapshot?.hotspot == false
+        ) {
+            toast("正在打开车机热点…")
+            val context = applicationContext
+            worker.execute {
+                val result = runCatching {
+                    CarHotspotTools.start(context, timeoutMillis = 20_000L)
+                }
+                val ready = when (val outcome = result.getOrNull()) {
+                    is CarHotspotStartResult.Enabled, is CarHotspotStartResult.AlreadyEnabled -> true
+                    else -> false
+                }
+                if (!ready) {
+                    AutoConnectDiagnostics.record(context, "manual-hotspot-failed",
+                        (result.getOrNull() as? CarHotspotStartResult.Failure)?.reason?.name
+                            ?: result.exceptionOrNull()?.javaClass?.simpleName ?: "unknown")
+                }
+                handler.post {
+                    if (isFinishing) return@post
+                    if (ready) openProjectionNow()
+                    else toast("无法自动打开车机热点，请手动开启后再点连接")
+                }
+            }
+            return
+        }
+        openProjectionNow()
+    }
+
+    private fun openProjectionNow() {
         AirPlayPersistence.saveWirelessEnabled(this, true)
         startActivity(
             Intent(this, CarPlayHostActivity::class.java)

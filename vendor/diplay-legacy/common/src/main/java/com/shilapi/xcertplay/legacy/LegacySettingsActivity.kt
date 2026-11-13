@@ -18,6 +18,7 @@ import android.widget.TextView
 import com.shilapi.xcertplay.AirPlayPersistence
 import com.shilapi.xcertplay.media.GeelyAudioCapabilities
 import com.shilapi.xcertplay.media.MediaAudioBuffer
+import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
 
 /**
  * Legacy settings, step 2: the knobs a GL19-class unit actually needs, in native Views.
@@ -26,6 +27,7 @@ import com.shilapi.xcertplay.media.MediaAudioBuffer
  * session start, matching what the engine's own screens do. No engine screen is shown here.
  */
 class LegacySettingsActivity : Activity() {
+    private lateinit var hotspotModeValue: TextView
     private lateinit var scaleValue: TextView
     private lateinit var fpsValue: TextView
     private lateinit var bufferValue: TextView
@@ -61,6 +63,27 @@ class LegacySettingsActivity : Activity() {
         header.addView(text("设置", 28, TEXT, true), LinearLayout.LayoutParams(0, WRAP, 1f))
         header.addView(action("返回") { finish() }, LinearLayout.LayoutParams(dp(110), dp(48)))
         root.addView(header)
+
+        section(root, "连接")
+        hotspotModeValue = valueRow(root, "热点方式") {
+            val modes = listOf(WirelessHotspotMode.MANUAL, WirelessHotspotMode.WIFI_P2P)
+            val labels = listOf("车机原厂热点", "本地直连（不接管手机流量）")
+            val current = modes.indexOf(AirPlayPersistence.loadWirelessHotspotMode(this)).coerceAtLeast(0)
+            choose("热点方式", labels, current) { index ->
+                AirPlayPersistence.saveWirelessHotspotMode(this, modes[index])
+                refreshValues()
+            }
+        }
+        root.addView(
+            text(
+                "本地直连：用 Wi-Fi Direct 组做车机与手机的专用网络，不提供互联网，手机继续用移动数据，" +
+                    "状态栏不会把它当成上网的 Wi-Fi（与 GLAPHotspot 的本地 P2P 同一机制）。" +
+                    "部分车机固件不支持建组，失败时可切回车机原厂热点。\n" +
+                    "车机原厂热点：使用车机自己的热点；手机能否继续用移动数据取决于车机是否给它上网。",
+                13, MUTED,
+            ),
+            marginTop(8),
+        )
 
         section(root, "画面")
         scaleValue = valueRow(root, "分辨率") {
@@ -202,6 +225,12 @@ class LegacySettingsActivity : Activity() {
     }
 
     private fun refreshValues() {
+        hotspotModeValue.text =
+            if (AirPlayPersistence.loadWirelessHotspotMode(this) == WirelessHotspotMode.WIFI_P2P) {
+                "本地直连"
+            } else {
+                "车机原厂热点"
+            }
         scaleValue.text = scaleLabels[scales.indexOf(AirPlayPersistence.loadDisplayScaleTenths(this)).coerceAtLeast(0)]
         fpsValue.text = if (AirPlayPersistence.loadFps(this) == 60) "60 fps" else "30 fps"
         bufferValue.text = AirPlayPersistence.loadMediaBufferMillis(this).toString() + " ms"

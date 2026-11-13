@@ -1,7 +1,7 @@
 # GL19 实车验证清单
 
 对象：2019 款帝豪 GL / GKUI / Android 4.4.2 / 车机热点 + Android 蓝牙 / iPhone 无线 CarPlay。
-工件：`dist/legacy/CarLink-Legacy-<版本>-ARMv7.apk`（当前 0.1.5，versionCode 8）。
+工件：`dist/legacy/CarLink-Legacy-<版本>-ARMv7.apk`（当前 0.1.6，versionCode 9）。
 前提：包内已注入 CarPlay 认证资产（`assembleStandaloneRelease` 构建）；车机蓝牙里已配对 iPhone。
 
 每一步都在停车状态操作。**"通过"只算实测结果，不算代码推断。**
@@ -45,6 +45,15 @@
 5. 在 CarPlay 画面按返回 / 打开设置：应回到 CarLink Legacy 的首页 / 设置页，**不应**出现 DiPlay 的界面。
 
 记录：从点连接到出画面的秒数。
+
+## 2b. 热点方式与手机流量
+
+1. 设置 → 连接 → 热点方式选**本地直连**，回到首页点连接。
+2. 观察手机：状态栏是否出现 Wi-Fi 图标；关闭 Wi-Fi 后手机能否正常用移动数据上网；CarPlay 是否可用。
+3. 再切回**车机原厂热点**重复一次，记录差异。
+
+通过标准：本地直连下手机仍用移动数据上网；CarPlay 正常；App 不因热点方式变化而崩溃。
+说明：本地直连不提供互联网也不做 NAT，但 iOS 是否显示 Wi-Fi 图标由系统决定，以实测为准。
 
 ## 3. 自动连接（核心场景）
 
