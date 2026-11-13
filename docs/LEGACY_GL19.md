@@ -24,7 +24,9 @@ vendor/diplay-legacy/
 
 来源：`git0x4c/DiPlay-Geely-Android43` 的 GL19 分支（DiPlay 0.2.10 + API18 适配 + GK19Play 实车修复 + 自动连接）。与 `vendor/diplay`（0.2.22）互不影响：两条产品线不共享 Compose/AndroidX 运行时。
 
-验证包：`dist/legacy/CarLink-Legacy-0.1.1-ARMv7.apk`（versionCode 4，SHA-256 `ed64483f…9b1c34`，含认证资产）。
+验证包：`dist/legacy/CarLink-Legacy-0.1.2-ARMv7.apk`（versionCode 5，SHA-256 `332bf140…b30e8b`，含认证资产）。
+
+诊断报告写到 `DiPlay-diagnostics/` 目录（沿用引擎的清理与命名约定），文件名 `CarLinkLegacy-report-yyyyMMdd-HHmmss.txt`；没有可写外部存储时落到应用私有目录并在弹窗里说明。报告含：设备/系统、连接与自动开关、画面与音频偏好、MFi 状态、自动连接自检与最近动作、开机诊断、音频统计，以及脱敏后的 `diplay.log`。
 
 ### 构建
 
@@ -59,6 +61,7 @@ DIPLAY_AUTH_ASSETS_DIR=/absolute/path/to/assets \
 |---|---|
 | 画面 | 分辨率（原始 / 80% / 60%）、帧率（30 / 60）、HEVC |
 | 音频 | 音乐缓冲（300 / 500 / 1000 ms）、吉利原厂音频通道（仅检测到 H52 能力时显示） |
+| 诊断 | 导出诊断报告（U 盘优先）、连接自检 |
 | 关于 | 应用名、版本、包名、适用系统 |
 
 仍未做：CarLink 主 app 的其余屏幕（Home v2 视觉、手机切换、诊断导出、更新器）都还没移植。

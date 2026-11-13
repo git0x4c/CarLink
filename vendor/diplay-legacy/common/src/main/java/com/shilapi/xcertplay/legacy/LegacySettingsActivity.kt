@@ -31,6 +31,9 @@ class LegacySettingsActivity : Activity() {
     private lateinit var bufferValue: TextView
     private lateinit var hevcSwitch: Switch
     private var geelyRoutingSwitch: Switch? = null
+    private val worker = java.util.concurrent.Executors.newSingleThreadExecutor { task ->
+        Thread(task, "carlink-legacy-settings").apply { isDaemon = true }
+    }
 
     private val scales = listOf(10, 8, 6)
     private val scaleLabels = listOf("原始分辨率", "80%（更轻）", "60%（最轻）")
@@ -38,6 +41,11 @@ class LegacySettingsActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(buildContent())
+    }
+
+    override fun onDestroy() {
+        worker.shutdownNow()
+        super.onDestroy()
     }
 
     private fun buildContent(): View {
@@ -89,6 +97,10 @@ class LegacySettingsActivity : Activity() {
             }
         }
 
+        section(root, "诊断")
+        fullRow(root, "导出诊断报告（优先写到 U 盘）") { exportReport() }
+        fullRow(root, "连接自检") { showSelfCheck() }
+
         section(root, "关于")
         infoRow(root, "应用", "CarLink Legacy")
         infoRow(root, "版本", versionName())
@@ -101,6 +113,48 @@ class LegacySettingsActivity : Activity() {
 
         refreshValues()
         return ScrollView(this).apply { addView(root) }
+    }
+
+    private fun fullRow(parent: LinearLayout, title: String, click: () -> Unit) {
+        val button = action(title) { click() }
+        parent.addView(button, marginTop(10))
+    }
+
+    private fun exportReport() {
+        val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US)
+            .format(java.util.Date())
+        val fileName = "CarLinkLegacy-report-$stamp.txt"
+        val appContext = applicationContext
+        worker.execute {
+            val outcome = runCatching { LegacyDiagnosticExport.export(appContext, fileName) }
+            runOnUiThread {
+                outcome.getOrNull()?.let { result ->
+                    val message = if (result.usedPrivateStorage) {
+                        "已保存到应用私有目录（未找到可写的外部存储）：\n" + result.path
+                    } else {
+                        "已保存：\n" + result.path
+                    }
+                    AlertDialog.Builder(this).setTitle("诊断报告").setMessage(message)
+                        .setPositiveButton("知道了", null).show()
+                } ?: AlertDialog.Builder(this).setTitle("导出失败")
+                    .setMessage(outcome.exceptionOrNull()?.message ?: "未知错误")
+                    .setPositiveButton("知道了", null).show()
+            }
+        }
+    }
+
+    private fun showSelfCheck() {
+        val appContext = applicationContext
+        worker.execute {
+            val report = com.shilapi.xcertplay.AutoConnectSelfCheck.report(appContext) + "\n\n" +
+                com.shilapi.xcertplay.AutoConnectDiagnostics.report(appContext)
+            runOnUiThread {
+                val text = text(report, 14, TEXT).apply { setPadding(dp(20), dp(16), dp(20), dp(16)) }
+                AlertDialog.Builder(this).setTitle("连接自检")
+                    .setView(ScrollView(this).apply { addView(text) })
+                    .setPositiveButton("关闭", null).show()
+            }
+        }
     }
 
     private fun section(parent: LinearLayout, title: String) {
