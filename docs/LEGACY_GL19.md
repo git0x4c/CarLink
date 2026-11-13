@@ -28,6 +28,10 @@ vendor/diplay-legacy/
 
 诊断报告写到 `DiPlay-diagnostics/` 目录（沿用引擎的清理与命名约定），文件名 `CarLinkLegacy-report-yyyyMMdd-HHmmss.txt`；没有可写外部存储时落到应用私有目录并在弹窗里说明。报告含：设备/系统、连接与自动开关、画面与音频偏好、MFi 状态、自动连接自检与最近动作、开机诊断、音频统计，以及脱敏后的 `diplay.log`。
 
+### 实车验证
+
+按 [GL19 实车验证清单](legacy/CAR-TEST.md) 执行：装包、首页自检、手动连接、自动连接、断线恢复、手动断开、失败取证，附判定表与已知限制。
+
 ### 构建
 
 ```sh

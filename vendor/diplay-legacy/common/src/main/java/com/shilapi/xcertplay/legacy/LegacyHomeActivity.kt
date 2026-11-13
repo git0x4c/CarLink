@@ -60,12 +60,15 @@ class LegacyHomeActivity : Activity() {
         Thread(task, "carlink-legacy-home").apply { isDaemon = true }
     }
     private val busy = AtomicBoolean(false)
-    private var autoStartAttempted = false
+    private var attempts = 0
+    private var lastAttemptAt = 0L
+    private var pausedUntil = 0L
     private var autoHotspotStartAttempted = false
     private var autoConnectSteps = 0
     private val tick = object : Runnable {
         override fun run() {
             refreshStatus()
+            maybeAutoConnect()
             handler.postDelayed(this, 1000)
         }
     }
@@ -198,6 +201,10 @@ class LegacyHomeActivity : Activity() {
             null
         }
         val session = CarPlayBackgroundSession.hasSession()
+        if (session) {
+            attempts = 0
+            lastAttemptAt = 0L
+        }
         val phoneName = DiPlayPreferences.phoneName(this)
         statusView.text = buildString {
             append(if (session) "CarPlay 会话进行中" else "未连接")
@@ -212,8 +219,11 @@ class LegacyHomeActivity : Activity() {
             )
             append(" · 已选手机 ").append(if (phone == null) "未选择" else phoneName)
         }
+        val now = System.nanoTime() / 1_000_000L
         val readiness = AutoConnectSelfCheck.readiness(this)
-        readinessView.text = when (readiness) {
+        readinessView.text = if (now < pausedUntil) {
+            "自检：已手动断开，自动连接暂停中"
+        } else when (readiness) {
             AutoConnectSelfCheck.Readiness.AUTO_CONNECT_OFF -> "自检：自动连接已关闭"
             AutoConnectSelfCheck.Readiness.PROFILE_INCOMPLETE -> "自检：还没有保存车机热点信息"
             AutoConnectSelfCheck.Readiness.NO_PHONE -> "自检：还没有选择 iPhone"
@@ -240,10 +250,15 @@ class LegacyHomeActivity : Activity() {
     // ---- actions --------------------------------------------------------------------------
 
     private fun maybeAutoConnect() {
-        if (autoStartAttempted || CarPlayBackgroundSession.hasSession()) return
+        if (CarPlayBackgroundSession.hasSession()) return
         if (!DiPlayPreferences.autoConnect(this)) return
-        autoStartAttempted = true
-        AutoConnectDiagnostics.record(this, "start")
+        val now = System.nanoTime() / 1_000_000L
+        if (!AutoConnectPause.mayRetry(now, pausedUntil, lastAttemptAt, attempts, AUTO_CONNECT_MAX_ATTEMPTS)) return
+        lastAttemptAt = now
+        attempts += 1
+        autoHotspotStartAttempted = false
+        autoConnectSteps = 0
+        AutoConnectDiagnostics.record(this, "start", "attempt=$attempts")
         handler.postDelayed(autoConnectStep, 700L)
     }
 
@@ -373,6 +388,11 @@ class LegacyHomeActivity : Activity() {
     }
 
     private fun disconnect() {
+        // The driver asked for this: no unattended start for a while (same idea as the main app's
+        // 10-minute auto-connect pause after Disconnect).
+        pausedUntil = System.nanoTime() / 1_000_000L + AutoConnectPause.MANUAL_PAUSE_MILLIS
+        attempts = 0
+        lastAttemptAt = 0L
         CarPlayBackgroundSession.stop { runOnUiThread { refreshStatus() } }
     }
 
@@ -519,6 +539,7 @@ class LegacyHomeActivity : Activity() {
 
     private companion object {
         const val AUTO_CONNECT_MAX_STEPS = 24
+        const val AUTO_CONNECT_MAX_ATTEMPTS = 5
         val BG = Color.rgb(12, 17, 27)
         val SURFACE = Color.rgb(21, 30, 44)
         val BORDER = Color.rgb(42, 56, 75)
