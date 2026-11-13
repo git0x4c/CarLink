@@ -21,6 +21,10 @@ import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import com.shilapi.xcertplay.AirPlayPersistence
+import com.shilapi.xcertplay.AutoConnectAction
+import com.shilapi.xcertplay.AutoConnectDiagnostics
+import com.shilapi.xcertplay.AutoConnectPolicy
+import com.shilapi.xcertplay.AutoConnectSelfCheck
 import com.shilapi.xcertplay.CarPlayBackgroundSession
 import com.shilapi.xcertplay.CarPlayHostActivity
 import com.shilapi.xcertplay.DiPlayBootstrap
@@ -56,6 +60,8 @@ class LegacyHomeActivity : Activity() {
     }
     private val busy = AtomicBoolean(false)
     private var autoStartAttempted = false
+    private var autoHotspotStartAttempted = false
+    private var autoConnectSteps = 0
     private val tick = object : Runnable {
         override fun run() {
             refreshStatus()
@@ -130,6 +136,8 @@ class LegacyHomeActivity : Activity() {
         hotspotRow.addView(space(12), LinearLayout.LayoutParams(dp(12), 1))
         hotspotRow.addView(action("开启热点") { startHotspot() }, weight(1))
         root.addView(hotspotRow, marginTop(12))
+
+        root.addView(action("连接自检") { showDiagnostics() }, marginTop(12))
 
         root.addView(sectionTitle("自动连接"), marginTop(24))
         autoConnectSwitch = toggleRow(root, "打开 CarLink 时连接", DiPlayPreferences.autoConnect(this)) {
@@ -214,31 +222,118 @@ class LegacyHomeActivity : Activity() {
         if (autoStartAttempted || CarPlayBackgroundSession.hasSession()) return
         if (!DiPlayPreferences.autoConnect(this)) return
         autoStartAttempted = true
-        ensureHotspotThenConnect()
+        AutoConnectDiagnostics.record(this, "start")
+        handler.postDelayed(autoConnectStep, 700L)
     }
 
-    private fun ensureHotspotThenConnect() {
-        val autoHotspot = DiPlayPreferences.autoStartHotspot(this)
-        val mode = AirPlayPersistence.loadWirelessHotspotMode(this)
-        worker.execute {
-            val enabled = if (mode == WirelessHotspotMode.MANUAL) {
-                CarHotspotStatus.isEnabled(applicationContext)
-                    ?: CarHotspotTools.readState(applicationContext)?.let { it == CarHotspotState.ENABLED }
-            } else {
-                true
+    private val autoConnectStep = object : Runnable {
+        override fun run() {
+            if (isFinishing) return
+            if (++autoConnectSteps > AUTO_CONNECT_MAX_STEPS) {
+                AutoConnectDiagnostics.record(applicationContext, "gave-up", "steps=$autoConnectSteps")
+                return
             }
-            val ready = when {
-                enabled == true -> true
-                !autoHotspot -> false
-                else -> when (CarHotspotTools.start(applicationContext, timeoutMillis = 20_000L)) {
-                    is CarHotspotStartResult.Enabled, is CarHotspotStartResult.AlreadyEnabled -> true
-                    is CarHotspotStartResult.Failure -> false
-                }
+            val mode = AirPlayPersistence.loadWirelessHotspotMode(applicationContext)
+            val profileSaved = mode != WirelessHotspotMode.MANUAL ||
+                com.shilapi.xcertplay.orchestration.ManualHotspotValidation.error(
+                    AirPlayPersistence.loadManualHotspotSsid(applicationContext).orEmpty(),
+                    AirPlayPersistence.loadManualHotspotPassphrase(applicationContext).orEmpty(),
+                ) == null
+            val phoneSelected = DiPlayPreferences.phoneAddress(applicationContext) != null
+            val running = CarPlayBackgroundSession.hasSession()
+            val autoStartHotspot = DiPlayPreferences.autoStartHotspot(applicationContext)
+            val context = applicationContext
+            worker.execute {
+                val state = readHotspotState(context, mode)
+                val action = AutoConnectPolicy.decide(
+                    hotspotMode = mode,
+                    hotspotState = state,
+                    autoStartHotspot = autoStartHotspot,
+                    hotspotProfileSaved = profileSaved,
+                    phoneSelected = phoneSelected,
+                    sessionRunning = running,
+                )
+                handler.post { applyAutoConnectAction(action, state) }
+            }
+        }
+    }
+
+    private fun applyAutoConnectAction(action: AutoConnectAction, state: CarHotspotState?) {
+        if (isFinishing) return
+        AutoConnectDiagnostics.action(this, action.name)
+        when (action) {
+            AutoConnectAction.SKIP -> Unit
+            AutoConnectAction.CONNECT -> {
+                AutoConnectDiagnostics.record(this, "connect", "hotspot=${state ?: "unknown"}")
+                connectWhenReady()
+            }
+            AutoConnectAction.WAIT_FOR_HOTSPOT -> {
+                AutoConnectDiagnostics.record(this, "wait-hotspot", "hotspot=$state")
+                handler.postDelayed(autoConnectStep, 2_000L)
+            }
+            AutoConnectAction.START_HOTSPOT -> startHotspotForAutoConnect()
+            AutoConnectAction.NEEDS_SETUP -> {
+                AutoConnectDiagnostics.record(this, "needs-setup", "hotspot=${state ?: "unknown"}")
+                toast(
+                    if (DiPlayPreferences.phoneAddress(this) == null) "请先选择已配对的 iPhone"
+                    else "请先读取并保存车机热点信息",
+                )
+            }
+        }
+    }
+
+    private fun readHotspotState(context: android.content.Context, mode: WirelessHotspotMode): CarHotspotState? {
+        if (mode != WirelessHotspotMode.MANUAL) return null
+        CarHotspotTools.readState(context)?.let { return it }
+        return when (CarHotspotStatus.isEnabled(context)) {
+            true -> CarHotspotState.ENABLED
+            false -> CarHotspotState.DISABLED
+            null -> null
+        }
+    }
+
+    private fun startHotspotForAutoConnect() {
+        if (autoHotspotStartAttempted) {
+            AutoConnectDiagnostics.record(this, "start-hotspot-skipped")
+            toast("车机热点未能自动开启，请手动开启后点连接")
+            return
+        }
+        autoHotspotStartAttempted = true
+        AutoConnectDiagnostics.record(this, "start-hotspot")
+        val context = applicationContext
+        worker.execute {
+            val result = runCatching {
+                CarHotspotTools.start(context, timeoutMillis = 20_000L)
             }
             handler.post {
-                if (isFinishing) return@post
-                if (ready) connect() else toast("车机热点未就绪，请手动开启后点连接")
+                when (val outcome = result.getOrNull()) {
+                    is CarHotspotStartResult.Enabled, is CarHotspotStartResult.AlreadyEnabled -> {
+                        AutoConnectDiagnostics.record(this, "hotspot-enabled")
+                        handler.postDelayed(autoConnectStep, 1_500L)
+                    }
+                    else -> {
+                        val reason = (outcome as? CarHotspotStartResult.Failure)?.reason?.name
+                            ?: result.exceptionOrNull()?.javaClass?.simpleName
+                            ?: "unknown"
+                        AutoConnectDiagnostics.record(this, "hotspot-failed", reason)
+                        toast("自动开启车机热点失败：$reason")
+                    }
+                }
             }
+        }
+    }
+
+    /** Cold boots enable the radio a few seconds after launch; wait before giving up. */
+    private fun connectWhenReady() {
+        val context = applicationContext
+        worker.execute {
+            val adapter = systemService(BluetoothManager::class.java, "bluetooth")?.adapter
+            val deadline = System.nanoTime() + 20_000_000_000L
+            while (adapter != null && !runCatching { adapter.isEnabled }.getOrDefault(false) &&
+                System.nanoTime() < deadline) {
+                Thread.sleep(500L)
+            }
+            handler.post { if (!isFinishing) connect() }
         }
     }
 
@@ -291,6 +386,28 @@ class LegacyHomeActivity : Activity() {
             }
             .setNegativeButton("取消", null)
             .show()
+    }
+
+    /** Read-only verdict for a car test: which precondition fails, if any. */
+    private fun showDiagnostics() {
+        worker.execute {
+            val report = AutoConnectSelfCheck.report(applicationContext) + "\n\n" +
+                AutoConnectDiagnostics.report(applicationContext)
+            handler.post {
+                if (isFinishing) return@post
+                val text = TextView(this).apply {
+                    this.text = report
+                    textSize = 14f
+                    setTextColor(TEXT)
+                    setPadding(dp(20), dp(16), dp(20), dp(16))
+                }
+                AlertDialog.Builder(this)
+                    .setTitle("连接自检")
+                    .setView(ScrollView(this).apply { addView(text) })
+                    .setPositiveButton("关闭", null)
+                    .show()
+            }
+        }
     }
 
     private fun readHotspot() {
@@ -380,6 +497,7 @@ class LegacyHomeActivity : Activity() {
     private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
 
     private companion object {
+        const val AUTO_CONNECT_MAX_STEPS = 24
         val BG = Color.rgb(12, 17, 27)
         val SURFACE = Color.rgb(21, 30, 44)
         val BORDER = Color.rgb(42, 56, 75)

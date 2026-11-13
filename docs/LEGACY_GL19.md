@@ -45,6 +45,8 @@ DIPLAY_AUTH_ASSETS_DIR=/absolute/path/to/assets \
 - 状态：CarPlay 是否连接、蓝牙、已配对 iPhone 数、车机热点状态、已选手机。
 - 操作：连接 CarPlay（进引擎的 `CarPlayHostActivity` 投影面）、断开、选择 iPhone、读取车机热点、开启热点。
 - 自动连接：打开时连接 / 自动开启车机热点 / 车机启动后打开，三个开关直接写引擎既有偏好。
+- 自动连接流程由 `AutoConnectPolicy`（与主产品同一套判定）驱动：热点已开→连；正在开→每 2s 重读；关闭/未知且开了开关→请求开启；未选手机或未存热点→提示而不空转。冷启动时最多等 20s 让蓝牙就绪再连。
+- **连接自检**按钮：只读显示 `AutoConnectSelfCheck` + 上次自动连接动作，实车上一步就能看出卡在哪个前置条件。
 - 开机广播与"打开时连接"都指向这个首页；引擎自带的 `DiPlayActivity` 不再是启动入口（`exported=false`，无 LAUNCHER）。
 
 应用身份：`com.carlink.legacy`（测试变体加 `.a` 等后缀），应用名 `CarLink Legacy`，版本 `0.1.0`。
@@ -61,7 +63,7 @@ DIPLAY_AUTH_ASSETS_DIR=/absolute/path/to/assets \
 
 - **其余界面**：首页之外仍是引擎的投影面；CarLink 的 Home v2 视觉、设置分组、诊断与切换器尚未移植。
 - **CarLink 自有能力**：多手机切换、Android Auto、浮动切换器、应用内更新都只在主 app（API 25+）里，Legacy 不含。
-- **实车验证**：Legacy 包在 GL19 上的安装与连接需要上车确认；仓库这里只能证明构建与产物属性。
+- **实车验证**：Legacy 包在 GL19 上的安装与连接需要上车确认。本轮可提供的证据是：构建成功、APK 属性（minSdk18 / 仅 armv7 / v1+v2 / 认证资产）、launcher 指向新首页、`legacy-common` 的 lint `NewApi=0`；**没有**在 4.4.2 真机或模拟器上启动过（本机 SDK 的 avdmanager 建 AVD 报 package.xml 解析错误，且没有 API19 镜像）。
 
 ### 许可
 
