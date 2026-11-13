@@ -65,6 +65,28 @@ class LegacyHomeActivity : Activity() {
     private var pausedUntil = 0L
     private var autoHotspotStartAttempted = false
     private var autoConnectSteps = 0
+    private var authReady = true
+    @Volatile private var snapshot: StatusSnapshot? = null
+    private var statusPolling = false
+    private val statusPoll = object : Runnable {
+        override fun run() {
+            if (isFinishing || !statusPolling) return
+            val context = applicationContext
+            worker.execute {
+                val next = readSnapshot(context)
+                snapshot = next
+                handler.post { if (!isFinishing) applySnapshot(next) }
+            }
+            handler.postDelayed(this, STATUS_POLL_MILLIS)
+        }
+    }
+
+    private data class StatusSnapshot(
+        val bluetoothOn: Boolean,
+        val iPhones: Int,
+        val hotspot: Boolean?,
+        val readiness: AutoConnectSelfCheck.Readiness,
+    )
     private val tick = object : Runnable {
         override fun run() {
             refreshStatus()
@@ -75,10 +97,11 @@ class LegacyHomeActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (runCatching { DiPlayBootstrap.ensure(this) }.isFailure) {
-            toast("认证信息加载失败，无法连接 CarPlay")
-        }
+        authReady = runCatching { DiPlayBootstrap.ensure(this) }.isSuccess
+        if (!authReady) toast("认证信息加载失败，无法连接 CarPlay")
         setContentView(buildContent())
+        statusPolling = true
+        handler.post(statusPoll)
     }
 
     override fun onResume() {
@@ -86,11 +109,17 @@ class LegacyHomeActivity : Activity() {
         refreshStatus()
         handler.removeCallbacks(tick)
         handler.postDelayed(tick, 1000)
+        if (!statusPolling) {
+            statusPolling = true
+            handler.post(statusPoll)
+        }
         maybeAutoConnect()
     }
 
     override fun onPause() {
         handler.removeCallbacks(tick)
+        statusPolling = false
+        handler.removeCallbacks(statusPoll)
         super.onPause()
     }
 
@@ -186,32 +215,29 @@ class LegacyHomeActivity : Activity() {
         return switch
     }
 
+    /** Cheap main-thread paint; every Binder read happens on the worker in [readSnapshot]. */
     private fun refreshStatus() {
         if (isFinishing) return
-        val adapter = systemService(BluetoothManager::class.java, "bluetooth")?.adapter
-        val bluetoothOn = runCatching { adapter?.isEnabled == true }.getOrDefault(false)
-        val iPhones = runCatching {
-            adapter?.bondedDevices?.count { it.name?.contains("iPhone", ignoreCase = true) == true } ?: 0
-        }.getOrDefault(0)
-        val phone = DiPlayPreferences.phoneAddress(this)
-        val mode = AirPlayPersistence.loadWirelessHotspotMode(this)
-        val hotspot = if (mode == WirelessHotspotMode.MANUAL) {
-            CarHotspotStatus.isEnabled(this) ?: CarHotspotTools.readState(this)?.let { it == CarHotspotState.ENABLED }
-        } else {
-            null
-        }
         val session = CarPlayBackgroundSession.hasSession()
         if (session) {
             attempts = 0
             lastAttemptAt = 0L
         }
+        val current = snapshot
+        val phone = DiPlayPreferences.phoneAddress(this)
         val phoneName = DiPlayPreferences.phoneName(this)
         statusView.text = buildString {
             append(if (session) "CarPlay 会话进行中" else "未连接")
-            append("\n蓝牙 ").append(if (bluetoothOn) "已开启" else "未开启")
-            append(" · 已配对 iPhone ").append(iPhones).append(" 台")
+            append("\n蓝牙 ").append(
+                when (current?.bluetoothOn) {
+                    true -> "已开启"
+                    false -> "未开启"
+                    null -> "读取中…"
+                },
+            )
+            append(" · 已配对 iPhone ").append(current?.iPhones ?: "-").append(" 台")
             append("\n热点 ").append(
-                when (hotspot) {
+                when (current?.hotspot) {
                     true -> "已开启"
                     false -> "未开启"
                     null -> "状态未知"
@@ -219,11 +245,33 @@ class LegacyHomeActivity : Activity() {
             )
             append(" · 已选手机 ").append(if (phone == null) "未选择" else phoneName)
         }
+        applyReadiness(current?.readiness)
+        connectButton.isEnabled = !session
+        disconnectButton.isEnabled = session
+        autoConnectSwitch.isChecked = DiPlayPreferences.autoConnect(this)
+        autoHotspotSwitch.isChecked = DiPlayPreferences.autoStartHotspot(this)
+        bootSwitch.isChecked = AirPlayPersistence.loadAutoStartOnBoot(this)
+    }
+
+    private fun applySnapshot(@Suppress("UNUSED_PARAMETER") next: StatusSnapshot) {
+        if (isFinishing) return
+        refreshStatus()
+    }
+
+    private fun applyReadiness(readiness: AutoConnectSelfCheck.Readiness?) {
+        if (!authReady) {
+            readinessView.text = "自检：认证信息不可用，无法连接 CarPlay"
+            readinessView.setTextColor(WARNING)
+            return
+        }
         val now = System.nanoTime() / 1_000_000L
-        val readiness = AutoConnectSelfCheck.readiness(this)
-        readinessView.text = if (now < pausedUntil) {
-            "自检：已手动断开，自动连接暂停中"
-        } else when (readiness) {
+        if (now < pausedUntil) {
+            readinessView.text = "自检：已手动断开，自动连接暂停中"
+            readinessView.setTextColor(WARNING)
+            return
+        }
+        readinessView.text = when (readiness) {
+            null -> "自检：正在读取状态…"
             AutoConnectSelfCheck.Readiness.AUTO_CONNECT_OFF -> "自检：自动连接已关闭"
             AutoConnectSelfCheck.Readiness.PROFILE_INCOMPLETE -> "自检：还没有保存车机热点信息"
             AutoConnectSelfCheck.Readiness.NO_PHONE -> "自检：还没有选择 iPhone"
@@ -234,14 +282,23 @@ class LegacyHomeActivity : Activity() {
         readinessView.setTextColor(
             if (readiness == AutoConnectSelfCheck.Readiness.READY) MUTED else WARNING,
         )
-        if (phoneButtonView == null || phoneButtonView?.text != phoneLabel()) {
-            phoneButtonView?.text = phoneLabel()
+    }
+
+    private fun readSnapshot(context: android.content.Context): StatusSnapshot {
+        val adapter = systemService(BluetoothManager::class.java, "bluetooth")?.adapter
+        val bluetoothOn = runCatching { adapter?.isEnabled == true }.getOrDefault(false)
+        val iPhones = runCatching {
+            adapter?.bondedDevices?.count { it.name?.contains("iPhone", ignoreCase = true) == true } ?: 0
+        }.getOrDefault(0)
+        val mode = AirPlayPersistence.loadWirelessHotspotMode(context.applicationContext)
+        val hotspot = if (mode == WirelessHotspotMode.MANUAL) {
+            CarHotspotStatus.isEnabled(context) ?: CarHotspotTools.readState(context)?.let {
+                it == CarHotspotState.ENABLED
+            }
+        } else {
+            null
         }
-        connectButton.isEnabled = !session
-        disconnectButton.isEnabled = session
-        autoConnectSwitch.isChecked = DiPlayPreferences.autoConnect(this)
-        autoHotspotSwitch.isChecked = DiPlayPreferences.autoStartHotspot(this)
-        bootSwitch.isChecked = AirPlayPersistence.loadAutoStartOnBoot(this)
+        return StatusSnapshot(bluetoothOn, iPhones, hotspot, AutoConnectSelfCheck.readiness(context))
     }
 
     private fun phoneLabel(): String =
@@ -540,6 +597,7 @@ class LegacyHomeActivity : Activity() {
     private companion object {
         const val AUTO_CONNECT_MAX_STEPS = 24
         const val AUTO_CONNECT_MAX_ATTEMPTS = 5
+        const val STATUS_POLL_MILLIS = 2_000L
         val BG = Color.rgb(12, 17, 27)
         val SURFACE = Color.rgb(21, 30, 44)
         val BORDER = Color.rgb(42, 56, 75)

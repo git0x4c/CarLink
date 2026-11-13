@@ -1,7 +1,7 @@
 # GL19 实车验证清单
 
 对象：2019 款帝豪 GL / GKUI / Android 4.4.2 / 车机热点 + Android 蓝牙 / iPhone 无线 CarPlay。
-工件：`dist/legacy/CarLink-Legacy-<版本>-ARMv7.apk`（当前 0.1.3，versionCode 6）。
+工件：`dist/legacy/CarLink-Legacy-<版本>-ARMv7.apk`（当前 0.1.4，versionCode 7）。
 前提：包内已注入 CarPlay 认证资产（`assembleStandaloneRelease` 构建）；车机蓝牙里已配对 iPhone。
 
 每一步都在停车状态操作。**"通过"只算实测结果，不算代码推断。**
@@ -26,6 +26,7 @@
 | 自检：还没有选择 iPhone | 没选手机 | 点"选择 iPhone" |
 | 自检：蓝牙未开启 | 车机蓝牙没开 | 车机设置里开蓝牙 |
 | 自检：车机热点未开启（可打开下方自动开关） | 热点没开且没授权自动开 | 开"自动开启车机热点"或手动开热点 |
+| 自检：认证信息不可用，无法连接 CarPlay | 包内没有认证资产 | 换带认证资产的包，联系开发 |
 
 通过标准：这一行与实际情况一致；点"连接自检"能看到完整报告。
 

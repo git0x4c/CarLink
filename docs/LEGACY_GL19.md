@@ -24,7 +24,7 @@ vendor/diplay-legacy/
 
 来源：`git0x4c/DiPlay-Geely-Android43` 的 GL19 分支（DiPlay 0.2.10 + API18 适配 + GK19Play 实车修复 + 自动连接）。与 `vendor/diplay`（0.2.22）互不影响：两条产品线不共享 Compose/AndroidX 运行时。
 
-验证包：`dist/legacy/CarLink-Legacy-0.1.2-ARMv7.apk`（versionCode 5，SHA-256 `332bf140…b30e8b`，含认证资产）。
+验证包：`dist/legacy/CarLink-Legacy-0.1.4-ARMv7.apk`（versionCode 7，SHA-256 `ddc56a95…3d8cc7`，含认证资产）。
 
 诊断报告写到 `DiPlay-diagnostics/` 目录（沿用引擎的清理与命名约定），文件名 `CarLinkLegacy-report-yyyyMMdd-HHmmss.txt`；没有可写外部存储时落到应用私有目录并在弹窗里说明。报告含：设备/系统、连接与自动开关、画面与音频偏好、MFi 状态、自动连接自检与最近动作、开机诊断、音频统计，以及脱敏后的 `diplay.log`。
 
@@ -54,7 +54,7 @@ DIPLAY_AUTH_ASSETS_DIR=/absolute/path/to/assets \
 - 操作：连接 CarPlay（进引擎的 `CarPlayHostActivity` 投影面）、断开、选择 iPhone、读取车机热点、开启热点。
 - 自动连接：打开时连接 / 自动开启车机热点 / 车机启动后打开，三个开关直接写引擎既有偏好。
 - 自动连接流程由 `AutoConnectPolicy`（与主产品同一套判定）驱动：热点已开→连；正在开→每 2s 重读；关闭/未知且开了开关→请求开启；未选手机或未存热点→提示而不空转。冷启动时最多等 20s 让蓝牙就绪再连。
-- 状态卡里有一行**内联自检**（自检：就绪 / 自动连接已关闭 / 还没有保存车机热点信息 / 还没有选择 iPhone / 蓝牙未开启 / 车机热点未开启），每秒刷新；点“连接自检”按钮则显示完整报告与上次自动动作。
+- 状态卡里有一行**内联自检**（蓝牙/热点读取在后台线程每 2 秒刷新，主线程只做绘制）（自检：就绪 / 自动连接已关闭 / 还没有保存车机热点信息 / 还没有选择 iPhone / 蓝牙未开启 / 车机热点未开启 / 认证信息不可用），每秒刷新；点“连接自检”按钮则显示完整报告与上次自动动作。
 - 开机广播与"打开时连接"都指向这个首页；引擎自带的 `DiPlayActivity` 不再是启动入口（`exported=false`，无 LAUNCHER）。
 
 应用身份：`com.carlink.legacy`（release 变体 `.a`），应用名 `CarLink Legacy`，当前版本 `0.1.1`。
