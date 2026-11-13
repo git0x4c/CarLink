@@ -17,18 +17,53 @@ import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
  * name or address is printed.
  */
 internal object AutoConnectSelfCheck {
-    fun report(context: Context): String {
+    /** Machine-readable verdict; the home screen maps it to its own wording. */
+    enum class Readiness(val label: String) {
+        AUTO_CONNECT_OFF("auto-connect is off"),
+        PROFILE_INCOMPLETE("hotspot profile incomplete"),
+        NO_PHONE("no iPhone selected"),
+        BLUETOOTH_OFF("Bluetooth is off"),
+        HOTSPOT_OFF("car hotspot is off and auto-start is off"),
+        READY("ready to start unattended"),
+    }
+
+    fun readiness(context: Context): Readiness {
         val mode = AirPlayPersistence.loadWirelessHotspotMode(context)
-        val ssid = AirPlayPersistence.loadManualHotspotSsid(context)
-        val passphrase = AirPlayPersistence.loadManualHotspotPassphrase(context)
-        val profileError = ManualHotspotValidation.error(ssid, passphrase)
-        val apState = if (mode == WirelessHotspotMode.MANUAL) {
+        val profileError = ManualHotspotValidation.error(
+            AirPlayPersistence.loadManualHotspotSsid(context),
+            AirPlayPersistence.loadManualHotspotPassphrase(context),
+        )
+        val apState = hotspotEnabled(context, mode)
+        val bluetoothEnabled = runCatching {
+            context.systemService(BluetoothManager::class.java, "bluetooth")?.adapter?.isEnabled == true
+        }.getOrDefault(false)
+        return when {
+            !DiPlayPreferences.autoConnect(context) -> Readiness.AUTO_CONNECT_OFF
+            mode == WirelessHotspotMode.MANUAL && profileError != null -> Readiness.PROFILE_INCOMPLETE
+            DiPlayPreferences.phoneAddress(context) == null -> Readiness.NO_PHONE
+            !bluetoothEnabled -> Readiness.BLUETOOTH_OFF
+            mode == WirelessHotspotMode.MANUAL && apState == false &&
+                !DiPlayPreferences.autoStartHotspot(context) -> Readiness.HOTSPOT_OFF
+            else -> Readiness.READY
+        }
+    }
+
+    private fun hotspotEnabled(context: Context, mode: WirelessHotspotMode): Boolean? =
+        if (mode != WirelessHotspotMode.MANUAL) {
+            null
+        } else {
             CarHotspotStatus.isEnabled(context) ?: CarHotspotTools.readState(context)?.let {
                 it == com.shilapi.xcertplay.network.CarHotspotState.ENABLED
             }
-        } else {
-            null
         }
+
+    fun report(context: Context): String {
+        val mode = AirPlayPersistence.loadWirelessHotspotMode(context)
+        val profileError = ManualHotspotValidation.error(
+            AirPlayPersistence.loadManualHotspotSsid(context),
+            AirPlayPersistence.loadManualHotspotPassphrase(context),
+        )
+        val apState = hotspotEnabled(context, mode)
         val adapter = context.systemService(BluetoothManager::class.java, "bluetooth")?.adapter
         val bluetoothEnabled = runCatching { adapter?.isEnabled == true }.getOrDefault(false)
         val bondedIPhones = runCatching {
@@ -37,15 +72,7 @@ internal object AutoConnectSelfCheck {
         val selected = DiPlayPreferences.phoneAddress(context) != null
         val wireless = AirPlayPersistence.loadWirelessEnabled(context)
 
-        val verdict = when {
-            !DiPlayPreferences.autoConnect(context) -> "auto-connect is off"
-            mode == WirelessHotspotMode.MANUAL && profileError != null -> "hotspot profile incomplete"
-            !selected -> "no iPhone selected"
-            !bluetoothEnabled -> "Bluetooth is off"
-            mode == WirelessHotspotMode.MANUAL && apState == false &&
-                !DiPlayPreferences.autoStartHotspot(context) -> "car hotspot is off and auto-start is off"
-            else -> "ready to start unattended"
-        }
+        val verdict = readiness(context).label
         return "Auto-connect self check: verdict=$verdict transport=${if (wireless) "wireless" else "USB"} " +
             "autoConnect=${DiPlayPreferences.autoConnect(context)} " +
             "openAfterBoot=${AirPlayPersistence.loadAutoStartOnBoot(context)} " +

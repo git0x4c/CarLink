@@ -50,6 +50,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 class LegacyHomeActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var statusView: TextView
+    private lateinit var readinessView: TextView
     private lateinit var connectButton: Button
     private lateinit var disconnectButton: Button
     private lateinit var autoConnectSwitch: Switch
@@ -116,6 +117,8 @@ class LegacyHomeActivity : Activity() {
         }
         statusView = text("", 17, TEXT)
         card.addView(statusView)
+        readinessView = text("", 14, MUTED)
+        card.addView(readinessView, marginTop(8))
         val hint = text("iPhone 需先在车机蓝牙中配对；无线连接使用车机热点。", 14, MUTED)
         card.addView(hint, marginTop(10))
         root.addView(card, marginTop(24))
@@ -203,6 +206,18 @@ class LegacyHomeActivity : Activity() {
             )
             append(" · 已选手机 ").append(if (phone == null) "未选择" else phoneName)
         }
+        val readiness = AutoConnectSelfCheck.readiness(this)
+        readinessView.text = when (readiness) {
+            AutoConnectSelfCheck.Readiness.AUTO_CONNECT_OFF -> "自检：自动连接已关闭"
+            AutoConnectSelfCheck.Readiness.PROFILE_INCOMPLETE -> "自检：还没有保存车机热点信息"
+            AutoConnectSelfCheck.Readiness.NO_PHONE -> "自检：还没有选择 iPhone"
+            AutoConnectSelfCheck.Readiness.BLUETOOTH_OFF -> "自检：蓝牙未开启"
+            AutoConnectSelfCheck.Readiness.HOTSPOT_OFF -> "自检：车机热点未开启（可打开下方自动开关）"
+            AutoConnectSelfCheck.Readiness.READY -> "自检：就绪，可以连接"
+        }
+        readinessView.setTextColor(
+            if (readiness == AutoConnectSelfCheck.Readiness.READY) MUTED else WARNING,
+        )
         if (phoneButtonView == null || phoneButtonView?.text != phoneLabel()) {
             phoneButtonView?.text = phoneLabel()
         }
@@ -504,5 +519,6 @@ class LegacyHomeActivity : Activity() {
         val ACCENT = Color.rgb(166, 200, 255)
         val TEXT = Color.rgb(241, 245, 252)
         val MUTED = Color.rgb(168, 182, 202)
+        val WARNING = Color.rgb(255, 196, 128)
     }
 }
