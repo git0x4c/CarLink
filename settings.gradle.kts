@@ -50,3 +50,15 @@ include(":androidauto")
 project(":androidauto").projectDir = file("vendor/diauto/app")
 include(":androidauto-contract")
 project(":androidauto-contract").projectDir = file("vendor/diauto/contract")
+
+// CarLink Legacy: the API19-compatible CarPlay product (Android 4.4/5.x head units).
+// The engine and the native-View UI are vendored from the DiPlay GL19 fork so the two products
+// never share a Compose/AndroidX runtime.
+include(":legacy-shared")
+project(":legacy-shared").projectDir = file("vendor/diplay-legacy/shared")
+include(":legacy-common")
+project(":legacy-common").projectDir = file("vendor/diplay-legacy/common")
+include(":legacy-mobile")
+project(":legacy-mobile").projectDir = file("vendor/diplay-legacy/mobile")
+include(":legacy-jmdns")
+project(":legacy-jmdns").projectDir = file("vendor/diplay-legacy/jmdns")
