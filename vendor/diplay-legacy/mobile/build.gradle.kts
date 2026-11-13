@@ -25,15 +25,15 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.shihab.diplay"
+        applicationId = "com.carlink.legacy"
         minSdk = 18
         // API 18 predates native multidex; keep the launcher installable on 4.3.
         multiDexEnabled = true
         targetSdk = 37
-        versionCode = if (gl19Release) 36 else if (gl19AudioTest == "aopus") 32 else if (gl19AudioTestEnabled) 30 else 29
-        versionName = "0.2.10"
+        versionCode = if (gl19Release) 3 else if (gl19AudioTest == "aopus") 2 else 1
+        versionName = "0.1.0"
         manifestPlaceholders["diplayAppLabel"] = when (gl19AudioTest) {
-            "aopus" -> "GK19Play"
+            "aopus" -> "CarLink Legacy"
             "a" -> "DiPlay GL19 A 焦点测试"
             "b" -> "DiPlay GL19 B RCC测试"
             else -> if (gl19Diagnostics) "DiPlay GL19 诊断" else "@string/app_name"
@@ -61,8 +61,8 @@ android {
 
     buildTypes {
         debug {
-            applicationIdSuffix = if (gl19AudioTest == "aopus") ".gl19diaga" else if (gl19AudioTestEnabled) ".gl19diag$gl19AudioTest" else if (gl19Diagnostics) ".gl19diag" else ".repair1"
-            versionNameSuffix = if (gl19AudioTest == "aopus") "-gl19-a-opus-tools" else if (gl19AudioTestEnabled) "-gl19-$gl19AudioTest" else if (gl19Diagnostics) "-gl19-diag" else "-hud-test"
+            applicationIdSuffix = if (gl19AudioTest == "aopus") ".a" else if (gl19AudioTestEnabled) ".t$gl19AudioTest" else if (gl19Diagnostics) ".diag" else ""
+            versionNameSuffix = if (gl19AudioTest == "aopus") "-legacy-debug" else if (gl19AudioTestEnabled) "-legacy-$gl19AudioTest" else if (gl19Diagnostics) "-legacy-diag" else "-debug"
         }
         release {
             isDebuggable = false
@@ -70,8 +70,8 @@ android {
                 enable = gl19Release
             }
             if (gl19Release) {
-                applicationIdSuffix = ".gl19diaga"
-                versionNameSuffix = "-gk19play-auto3"
+                applicationIdSuffix = ".a"
+                versionNameSuffix = "-legacy"
             }
             // A debug signing certificate does not enable the debugger. Keeping it
             // here allows this non-debuggable release to update the tested A APK.

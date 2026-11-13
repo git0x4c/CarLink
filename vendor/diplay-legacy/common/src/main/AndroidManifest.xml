@@ -23,8 +23,9 @@
     </queries>
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
     <application>
-        <activity android:name="com.shilapi.xcertplay.DiPlayActivity"
+        <activity android:name="com.shilapi.xcertplay.legacy.LegacyHomeActivity"
             android:exported="true" android:launchMode="singleTop"
+            android:screenOrientation="fullSensor"
             android:configChanges="density|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
             android:theme="@style/Theme.Xcertplay">
             <intent-filter>
@@ -32,6 +33,13 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- The engine's own home screen is kept only for the diagnostic probe; CarLink Legacy
+             never routes the driver to it. -->
+        <activity android:name="com.shilapi.xcertplay.DiPlayActivity"
+            android:exported="false" android:launchMode="singleTop"
+            android:configChanges="density|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+            android:theme="@style/Theme.Xcertplay" />
         <service android:name="com.shilapi.xcertplay.DiPlaySessionService"
             android:exported="false" android:foregroundServiceType="connectedDevice|microphone|location" />
 

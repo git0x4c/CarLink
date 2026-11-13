@@ -1,0 +1,390 @@
+package com.shilapi.xcertplay.legacy
+
+import android.app.Activity
+import android.app.AlertDialog
+import android.bluetooth.BluetoothManager
+import android.content.Intent
+import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.provider.Settings
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.Switch
+import android.widget.TextView
+import android.widget.Toast
+import com.shilapi.xcertplay.AirPlayPersistence
+import com.shilapi.xcertplay.CarPlayBackgroundSession
+import com.shilapi.xcertplay.CarPlayHostActivity
+import com.shilapi.xcertplay.DiPlayBootstrap
+import com.shilapi.xcertplay.DiPlayPreferences
+import com.shilapi.xcertplay.EXTRA_TRANSPORT_WIRELESS
+import com.shilapi.xcertplay.compat.systemService
+import com.shilapi.xcertplay.network.CarHotspotReadResult
+import com.shilapi.xcertplay.network.CarHotspotStartResult
+import com.shilapi.xcertplay.network.CarHotspotState
+import com.shilapi.xcertplay.network.CarHotspotStatus
+import com.shilapi.xcertplay.network.CarHotspotTools
+import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
+
+/**
+ * CarLink Legacy home, step 1: the driver's screen for a 4.x head unit.
+ *
+ * CarLink's own screens are Compose and cannot run below API 21, so this product carries a small
+ * native-View screen set. The projection surface stays the engine's [CarPlayHostActivity]; nothing
+ * else from the engine's own UI is reachable from here.
+ */
+class LegacyHomeActivity : Activity() {
+    private val handler = Handler(Looper.getMainLooper())
+    private lateinit var statusView: TextView
+    private lateinit var connectButton: Button
+    private lateinit var disconnectButton: Button
+    private lateinit var autoConnectSwitch: Switch
+    private lateinit var autoHotspotSwitch: Switch
+    private lateinit var bootSwitch: Switch
+    private val worker = Executors.newSingleThreadExecutor { task ->
+        Thread(task, "carlink-legacy-home").apply { isDaemon = true }
+    }
+    private val busy = AtomicBoolean(false)
+    private var autoStartAttempted = false
+    private val tick = object : Runnable {
+        override fun run() {
+            refreshStatus()
+            handler.postDelayed(this, 1000)
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        if (runCatching { DiPlayBootstrap.ensure(this) }.isFailure) {
+            toast("认证信息加载失败，无法连接 CarPlay")
+        }
+        setContentView(buildContent())
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshStatus()
+        handler.removeCallbacks(tick)
+        handler.postDelayed(tick, 1000)
+        maybeAutoConnect()
+    }
+
+    override fun onPause() {
+        handler.removeCallbacks(tick)
+        super.onPause()
+    }
+
+    override fun onDestroy() {
+        handler.removeCallbacks(tick)
+        worker.shutdownNow()
+        super.onDestroy()
+    }
+
+    // ---- UI -------------------------------------------------------------------------------
+
+    private fun buildContent(): View {
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(32), dp(24), dp(32), dp(32))
+            setBackgroundColor(BG)
+        }
+        val title = text("CarLink", 34, TEXT, true)
+        val subtitle = text("Legacy · Android 4.x 车机版", 15, MUTED)
+        root.addView(title)
+        root.addView(subtitle, marginTop(6))
+
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(18), dp(20), dp(18))
+            background = rounded(SURFACE, BORDER)
+        }
+        statusView = text("", 17, TEXT)
+        card.addView(statusView)
+        val hint = text("iPhone 需先在车机蓝牙中配对；无线连接使用车机热点。", 14, MUTED)
+        card.addView(hint, marginTop(10))
+        root.addView(card, marginTop(24))
+
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        connectButton = action("连接 CarPlay", primary = true) { connect() }
+        disconnectButton = action("断开", primary = false) { disconnect() }
+        row.addView(connectButton, weight(1))
+        row.addView(space(12), LinearLayout.LayoutParams(dp(12), 1))
+        row.addView(disconnectButton, weight(1))
+        root.addView(row, marginTop(20))
+
+        phoneButtonView = action(phoneLabel()) { choosePhone() }
+        root.addView(phoneButtonView, marginTop(12))
+
+        val hotspotRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        hotspotRow.addView(action("读取车机热点") { readHotspot() }, weight(1))
+        hotspotRow.addView(space(12), LinearLayout.LayoutParams(dp(12), 1))
+        hotspotRow.addView(action("开启热点") { startHotspot() }, weight(1))
+        root.addView(hotspotRow, marginTop(12))
+
+        root.addView(sectionTitle("自动连接"), marginTop(24))
+        autoConnectSwitch = toggleRow(root, "打开 CarLink 时连接", DiPlayPreferences.autoConnect(this)) {
+            DiPlayPreferences.saveAutoConnect(this, it)
+        }
+        autoHotspotSwitch = toggleRow(root, "自动开启车机热点", DiPlayPreferences.autoStartHotspot(this)) {
+            DiPlayPreferences.saveAutoStartHotspot(this, it)
+        }
+        bootSwitch = toggleRow(root, "车机启动后打开", AirPlayPersistence.loadAutoStartOnBoot(this)) {
+            AirPlayPersistence.saveAutoStartOnBoot(this, it)
+        }
+
+        val scroll = ScrollView(this).apply { addView(root) }
+        return scroll
+    }
+
+    private var phoneButtonView: Button? = null
+
+    private fun toggleRow(parent: LinearLayout, label: String, checked: Boolean, save: (Boolean) -> Unit): Switch {
+        val line = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(10), 0, dp(10))
+        }
+        line.addView(text(label, 17, TEXT), weight(1))
+        val switch = Switch(this).apply {
+            isChecked = checked
+            minHeight = dp(48)
+            contentDescription = label
+            setOnCheckedChangeListener { _, value -> save(value) }
+        }
+        line.addView(switch)
+        parent.addView(line)
+        return switch
+    }
+
+    private fun refreshStatus() {
+        if (isFinishing) return
+        val adapter = systemService(BluetoothManager::class.java, "bluetooth")?.adapter
+        val bluetoothOn = runCatching { adapter?.isEnabled == true }.getOrDefault(false)
+        val iPhones = runCatching {
+            adapter?.bondedDevices?.count { it.name?.contains("iPhone", ignoreCase = true) == true } ?: 0
+        }.getOrDefault(0)
+        val phone = DiPlayPreferences.phoneAddress(this)
+        val mode = AirPlayPersistence.loadWirelessHotspotMode(this)
+        val hotspot = if (mode == WirelessHotspotMode.MANUAL) {
+            CarHotspotStatus.isEnabled(this) ?: CarHotspotTools.readState(this)?.let { it == CarHotspotState.ENABLED }
+        } else {
+            null
+        }
+        val session = CarPlayBackgroundSession.hasSession()
+        val phoneName = DiPlayPreferences.phoneName(this)
+        statusView.text = buildString {
+            append(if (session) "CarPlay 会话进行中" else "未连接")
+            append("\n蓝牙 ").append(if (bluetoothOn) "已开启" else "未开启")
+            append(" · 已配对 iPhone ").append(iPhones).append(" 台")
+            append("\n热点 ").append(
+                when (hotspot) {
+                    true -> "已开启"
+                    false -> "未开启"
+                    null -> "状态未知"
+                },
+            )
+            append(" · 已选手机 ").append(if (phone == null) "未选择" else phoneName)
+        }
+        if (phoneButtonView == null || phoneButtonView?.text != phoneLabel()) {
+            phoneButtonView?.text = phoneLabel()
+        }
+        connectButton.isEnabled = !session
+        disconnectButton.isEnabled = session
+        autoConnectSwitch.isChecked = DiPlayPreferences.autoConnect(this)
+        autoHotspotSwitch.isChecked = DiPlayPreferences.autoStartHotspot(this)
+        bootSwitch.isChecked = AirPlayPersistence.loadAutoStartOnBoot(this)
+    }
+
+    private fun phoneLabel(): String =
+        "选择 iPhone · " + DiPlayPreferences.phoneName(this)
+
+    // ---- actions --------------------------------------------------------------------------
+
+    private fun maybeAutoConnect() {
+        if (autoStartAttempted || CarPlayBackgroundSession.hasSession()) return
+        if (!DiPlayPreferences.autoConnect(this)) return
+        autoStartAttempted = true
+        ensureHotspotThenConnect()
+    }
+
+    private fun ensureHotspotThenConnect() {
+        val autoHotspot = DiPlayPreferences.autoStartHotspot(this)
+        val mode = AirPlayPersistence.loadWirelessHotspotMode(this)
+        worker.execute {
+            val enabled = if (mode == WirelessHotspotMode.MANUAL) {
+                CarHotspotStatus.isEnabled(applicationContext)
+                    ?: CarHotspotTools.readState(applicationContext)?.let { it == CarHotspotState.ENABLED }
+            } else {
+                true
+            }
+            val ready = when {
+                enabled == true -> true
+                !autoHotspot -> false
+                else -> when (CarHotspotTools.start(applicationContext, timeoutMillis = 20_000L)) {
+                    is CarHotspotStartResult.Enabled, is CarHotspotStartResult.AlreadyEnabled -> true
+                    is CarHotspotStartResult.Failure -> false
+                }
+            }
+            handler.post {
+                if (isFinishing) return@post
+                if (ready) connect() else toast("车机热点未就绪，请手动开启后点连接")
+            }
+        }
+    }
+
+    private fun connect() {
+        if (DiPlayPreferences.phoneAddress(this) == null) {
+            toast("请先选择已配对的 iPhone")
+            choosePhone()
+            return
+        }
+        AirPlayPersistence.saveWirelessEnabled(this, true)
+        startActivity(
+            Intent(this, CarPlayHostActivity::class.java)
+                .putExtra(EXTRA_TRANSPORT_WIRELESS, true)
+                .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
+        )
+    }
+
+    private fun disconnect() {
+        CarPlayBackgroundSession.stop { runOnUiThread { refreshStatus() } }
+    }
+
+    private fun choosePhone() {
+        val adapter = systemService(BluetoothManager::class.java, "bluetooth")?.adapter
+        if (adapter == null || !adapter.isEnabled) {
+            AlertDialog.Builder(this)
+                .setTitle("蓝牙未开启")
+                .setMessage("请先在车机设置中打开蓝牙并配对 iPhone。")
+                .setPositiveButton("打开蓝牙设置") { _, _ ->
+                    runCatching { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
+                }
+                .setNegativeButton("取消", null)
+                .show()
+            return
+        }
+        val devices = runCatching { adapter.bondedDevices.sortedBy { it.name ?: "" } }.getOrDefault(emptyList())
+        if (devices.isEmpty()) {
+            AlertDialog.Builder(this)
+                .setTitle("没有已配对的 iPhone")
+                .setMessage("在 iPhone 上打开设置 → 蓝牙，与本车机配对后回到这里。")
+                .setPositiveButton("知道了", null)
+                .show()
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("选择 iPhone")
+            .setItems(devices.map { it.name ?: "已配对设备" }.toTypedArray()) { _, index ->
+                val device = devices[index]
+                DiPlayPreferences.savePhone(this, device.address, device.name ?: "iPhone")
+                refreshStatus()
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun readHotspot() {
+        if (!busy.compareAndSet(false, true)) return
+        worker.execute {
+            val result = CarHotspotTools.read(applicationContext)
+            handler.post {
+                busy.set(false)
+                when (result) {
+                    is CarHotspotReadResult.Available -> {
+                        AirPlayPersistence.saveManualHotspotProfile(
+                            this,
+                            result.configuration.ssid,
+                            result.configuration.passphrase,
+                            result.configuration.security,
+                            result.configuration.band
+                                ?: com.shilapi.xcertplay.orchestration.ManualHotspotBand.AUTO,
+                            result.configuration.channel ?: 0,
+                        )
+                        AirPlayPersistence.saveWirelessHotspotMode(this, WirelessHotspotMode.MANUAL)
+                        toast("已保存车机热点：" + result.configuration.ssid)
+                        refreshStatus()
+                    }
+                    is CarHotspotReadResult.Failure -> toast("读取车机热点失败：" + result.reason.name)
+                }
+            }
+        }
+    }
+
+    private fun startHotspot() {
+        if (!busy.compareAndSet(false, true)) return
+        worker.execute {
+            val result = CarHotspotTools.start(applicationContext, timeoutMillis = 20_000L)
+            handler.post {
+                busy.set(false)
+                val message = when (result) {
+                    is CarHotspotStartResult.Enabled -> "车机热点已开启"
+                    is CarHotspotStartResult.AlreadyEnabled -> "车机热点本来就是开启的"
+                    is CarHotspotStartResult.Failure -> "开启车机热点失败：" + result.reason.name
+                }
+                toast(message)
+                refreshStatus()
+            }
+        }
+    }
+
+    // ---- small view helpers ---------------------------------------------------------------
+
+    private fun text(value: String, size: Int, color: Int, bold: Boolean = false) = TextView(this).apply {
+        text = value
+        textSize = size.toFloat()
+        setTextColor(color)
+        typeface = if (bold) Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        else Typeface.create("sans-serif", Typeface.NORMAL)
+        setLineSpacing(dp(3).toFloat(), 1f)
+    }
+
+    private fun action(title: String, primary: Boolean = false, click: () -> Unit) = Button(this).apply {
+        text = title
+        isAllCaps = false
+        textSize = 17f
+        setTextColor(if (primary) BG else TEXT)
+        background = rounded(if (primary) ACCENT else SURFACE, if (primary) ACCENT else BORDER)
+        minHeight = dp(52)
+        setOnClickListener { click() }
+    }
+
+    private fun sectionTitle(value: String) = text(value, 13, ACCENT, true)
+
+    private fun rounded(fill: Int, stroke: Int) = GradientDrawable().apply {
+        setColor(fill)
+        cornerRadius = dp(18).toFloat()
+        setStroke(dp(1), stroke)
+    }
+
+    private fun weight(value: Int) = LinearLayout.LayoutParams(0, dp(52), value.toFloat())
+
+    private fun marginTop(value: Int) = LinearLayout.LayoutParams(
+        ViewGroup.LayoutParams.MATCH_PARENT,
+        ViewGroup.LayoutParams.WRAP_CONTENT,
+    ).apply { topMargin = dp(value) }
+
+    private fun space(width: Int) = View(this).apply { layoutParams = LinearLayout.LayoutParams(width, 1) }
+
+    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+
+    private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+
+    private companion object {
+        val BG = Color.rgb(12, 17, 27)
+        val SURFACE = Color.rgb(21, 30, 44)
+        val BORDER = Color.rgb(42, 56, 75)
+        val ACCENT = Color.rgb(166, 200, 255)
+        val TEXT = Color.rgb(241, 245, 252)
+        val MUTED = Color.rgb(168, 182, 202)
+    }
+}

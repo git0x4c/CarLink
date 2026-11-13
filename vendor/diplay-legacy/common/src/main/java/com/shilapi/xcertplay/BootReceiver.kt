@@ -21,7 +21,7 @@ class BootReceiver : BroadcastReceiver() {
         StartupDiagnosticSnapshot.received(context, launchEnabled, source)
         if (!launchEnabled) return
 
-        val launch = Intent(context, DiPlayActivity::class.java).apply {
+        val launch = Intent(context, com.shilapi.xcertplay.legacy.LegacyHomeActivity::class.java).apply {
             addFlags(
                 Intent.FLAG_ACTIVITY_NEW_TASK or
                     Intent.FLAG_ACTIVITY_CLEAR_TOP or
@@ -33,7 +33,7 @@ class BootReceiver : BroadcastReceiver() {
             StartupDiagnosticSnapshot.launchResult(context)
         } catch (error: RuntimeException) {
             StartupDiagnosticSnapshot.launchResult(context, error)
-            Log.w(TAG, "Boot auto-start could not launch DiPlayActivity", error)
+            Log.w(TAG, "Boot auto-start could not launch LegacyHomeActivity", error)
         }
     }
 
