@@ -45,8 +45,9 @@ DIPLAY_AUTH_ASSETS_DIR=/path/to/assets scripts/legacy.sh release   # 可连接 i
 
 - `:legacy-shared` + `:legacy-common` 全量单测通过；新增首页/设置页 Robolectric 冒烟、诊断导出、暂停重试、策略测试。
 - lint `NewApi = 0`（`legacy-common`、`legacy-mobile`，minSdk 18）。
-- 产物 `com.carlink.legacy.a` / `CarLink Legacy` / `0.1.5`：minSdk 18、仅 `armeabi-v7a`、`v1+v2` 签名、认证资产在包内、launcher 指向 Legacy 首页。
-- **没有**在 4.4.2 真机或 Dalvik 模拟器上启动过（本机无 API19 镜像，`avdmanager` 建 AVD 失败）。这是本 PR 唯一实质缺口。
+- 产物 `com.carlink.legacy.a` / `CarLink Legacy` / `0.1.6`：minSdk 18、单 `classes.dex`（dex 035，41,985 方法引用）、仅 `armeabi-v7a`、`v1+v2` 签名、认证资产在包内、launcher 指向 Legacy 首页。
+- 界面在 Android 4.4 框架上加载：`LegacyApi19SmokeTest`（Robolectric 4.12.2 + `android-all-4.4_r1` + JDK 17 测试 JVM）断言 `SDK_INT == 19`，首页与设置页都能渲染并走完生命周期；`scripts/audit-api19.py` 核对 dex 形态与框架类引用。
+- **没有**在 4.4.2 真机或 Dalvik 模拟器上启动过（本机 arm64，Android 4.4 没有 arm64 镜像；`avdmanager` 建 API19 AVD 失败）。上车按 `docs/legacy/CAR-TEST.md`，装包按 `docs/legacy/INSTALL-4.4.2.md`。
 
 ## 风险
 

@@ -24,13 +24,37 @@ vendor/diplay-legacy/
 
 来源：`git0x4c/DiPlay-Geely-Android43` 的 GL19 分支（DiPlay 0.2.10 + API18 适配 + GK19Play 实车修复 + 自动连接）。与 `vendor/diplay`（0.2.22）互不影响：两条产品线不共享 Compose/AndroidX 运行时。
 
-验证包：`dist/legacy/CarLink-Legacy-0.1.6-ARMv7.apk`（versionCode 9，SHA-256 `06092f30…d59f1dd`，含认证资产）。
+验证包：`dist/legacy/CarLink-Legacy-0.1.6-ARMv7.apk`（versionCode 9，SHA-256 `7779e547…368b3b0b`，含认证资产，由提交 `4fbee46` 构建）。装包步骤见 [4.4.2 安装说明](legacy/INSTALL-4.4.2.md)。
 
 诊断报告写到 `DiPlay-diagnostics/` 目录（沿用引擎的清理与命名约定），文件名 `CarLinkLegacy-report-yyyyMMdd-HHmmss.txt`；没有可写外部存储时落到应用私有目录并在弹窗里说明。报告含：设备/系统、连接与自动开关、画面与音频偏好、MFi 状态、自动连接自检与最近动作、开机诊断、音频统计，以及脱敏后的 `diplay.log`。
 
 ### 实车验证
 
 按 [GL19 实车验证清单](legacy/CAR-TEST.md) 执行：装包、首页自检、手动连接、自动连接、断线恢复、手动断开、失败取证，附判定表与已知限制。
+
+### API 19 兼容性证据
+
+在拿不到 4.4.2 真机的情况下，产物本身按四条证据核对（2026-11-15）：
+
+| 证据 | 结果 |
+|---|---|
+| APK 形态 | `minSdk 18`（4.4.2 是 19）、`classes.dex` 为 dex 035、单个 dex、41,985 个方法引用（Dalvik 上限 65,536）、只含 `armeabi-v7a` 的 32 位 ARM `.so`、v1+v2 签名、zipalign 通过 |
+| 静态 API 面 | `:legacy-shared`、`:legacy-common`、`:legacy-mobile` 三个模块 lint `NewApi = 0`；其余只是 `InlinedApi`（编译期内联的常量，不是运行时调用） |
+| 框架类引用 | 对 dex 逐类比对 `platforms/android-19/android.jar`：117 个 API 20+ 的公共类都在 SDK 判断之后（lint `NewApi=0` 佐证）；不在 19/37 两个 SDK 里的只有 androidx 的 `android.support.v4.*Parcelizer`（随包打进 APK 的兼容类）与 jmdns 的 `javax.naming.*`（JNDI 分支；Android 无此包，只要不进入该分支就不会加载，连接走的是 JmDNS 主流程） |
+| 界面在 4.4 框架上真的能加载 | `LegacyApi19SmokeTest` 跑在 Robolectric 4.12.2 的 `android-all-4.4_r1` 上：断言 `SDK_INT == 19`，首页渲染出自检行/连接按钮/自动连接开关，设置页渲染出分辨率、音乐缓冲与产品名，各走完 pause/stop/destroy |
+
+复现：
+
+```sh
+# 界面在 API 19 框架下加载（Robolectric 4.12.2 + JDK 17 测试 JVM）
+sh ./gradlew :legacy-common:testDebugUnitTest -Pdiplay.gl19Diagnostics=true -Pdiplay.api19Smoke=true
+
+# 产物形态与 API 面
+python3 scripts/audit-api19.py dist/legacy/CarLink-Legacy-0.1.6-ARMv7.apk \
+  "$ANDROID_HOME/platforms/android-19/android.jar" "$ANDROID_HOME/platforms/android-37.0/android.jar"
+```
+
+边界：Robolectric 是 JVM 上跑 4.4 的框架类与资源，不是 Dalvik，也不含 GPU、蓝牙、车机热点固件。它能证明"装得上、首页/设置能起来、没有用到 4.4 没有的 API"，**不能**证明实车连接；后者仍需按清单上车。
 
 ### 构建
 
@@ -86,7 +110,7 @@ DIPLAY_AUTH_ASSETS_DIR=/absolute/path/to/assets \
 
 - **其余界面**：首页之外仍是引擎的投影面；CarLink 的 Home v2 视觉、设置分组、诊断与切换器尚未移植。
 - **CarLink 自有能力**：多手机切换、Android Auto、浮动切换器、应用内更新都只在主 app（API 25+）里，Legacy 不含。
-- **实车验证**：Legacy 包在 GL19 上的安装与连接需要上车确认。目前已有的证据：构建成功、APK 属性（minSdk18 / 仅 armv7 / v1+v2 / 认证资产）、launcher 指向新首页、`legacy-common` 与 `legacy-mobile` 的 lint `NewApi=0`、Robolectric 冒烟测试（首页与设置页都能创建、渲染出预期文案、走完 pause/stop/destroy）、`legacy-shared`/`legacy-common` 全部单测通过。**仍然没有**在 4.4.2 真机或 Dalvik 模拟器上启动过：本机没有 API19 镜像，`avdmanager` 建 AVD 报 system image 的 `package.xml` 解析错误。
+- **实车验证**：Legacy 包在 GL19 上的安装与连接需要上车确认。目前已有的证据：产物形态（minSdk18 / 仅 armv7 / dex 035 单 dex / v1+v2 / 认证资产）、三个模块 lint `NewApi=0`、`LegacyApi19SmokeTest` 在 Robolectric 4.12.2 的 4.4 框架上跑通首页与设置页、`legacy-shared`/`legacy-common` 全部单测通过（详见上一节）。**仍然没有**在 4.4.2 真机或 Dalvik 模拟器上启动过：本机是 arm64，Android 4.4 没有 arm64 系统镜像（`emulator` 只带 `darwin-aarch64` 的 qemu），`avdmanager` 建 API19 AVD 也会因 system image 的 `package.xml` 解析错误失败。真机上车按 [清单](legacy/CAR-TEST.md) 走。
 
 ### 许可
 

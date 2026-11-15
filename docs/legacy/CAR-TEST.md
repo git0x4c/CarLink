@@ -1,14 +1,15 @@
 # GL19 实车验证清单
 
 对象：2019 款帝豪 GL / GKUI / Android 4.4.2 / 车机热点 + Android 蓝牙 / iPhone 无线 CarPlay。
-工件：`dist/legacy/CarLink-Legacy-<版本>-ARMv7.apk`（当前 0.1.6，versionCode 9）。
+工件：`dist/legacy/CarLink-Legacy-0.1.6-ARMv7.apk`（versionCode 9，SHA-256 `7779e547…368b3b0b`，
+提交 `4fbee46` 构建）；装包细节见 [4.4.2 安装说明](INSTALL-4.4.2.md)。
 前提：包内已注入 CarPlay 认证资产（`assembleStandaloneRelease` 构建）；车机蓝牙里已配对 iPhone。
 
 每一步都在停车状态操作。**"通过"只算实测结果，不算代码推断。**
 
 ## 0. 装包
 
-1. APK 拷到 U 盘 → 车机文件管理器打开 → 允许未知来源 → 安装。
+1. APK 拷到 U 盘 → 车机文件管理器打开 → 允许未知来源 → 安装（先按安装说明核对 SHA-256）。
 2. 应用列表出现 **CarLink Legacy**，图标可点开。
 3. 若之前装过旧版本：直接覆盖安装，设置保留。
 
