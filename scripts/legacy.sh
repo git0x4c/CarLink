@@ -7,6 +7,10 @@ case "${1:-debug}" in
     sh ./gradlew :legacy-shared:testDebugUnitTest :legacy-common:testDebugUnitTest \
       -Pdiplay.gl19Diagnostics=true --offline
     ;;
+  api19)
+    # The Dalvik-era smoke test: the Legacy screens on the Android 4.4 (API 19) framework.
+    sh ./gradlew :legacy-common:testDebugUnitTest -Pdiplay.gl19Diagnostics=true -Pdiplay.api19Smoke=true
+    ;;
   debug)
     sh ./gradlew :legacy-mobile:assembleDebug -Pdiplay.gl19Diagnostics=true --offline
     ;;
@@ -16,7 +20,7 @@ case "${1:-debug}" in
       -Pdiplay.gl19Diagnostics=true -Pdiplay.gl19AudioTest=aopus -Pdiplay.gl19Release=true
     ;;
   *)
-    echo "usage: $0 {test|debug|release}" >&2
+    echo "usage: $0 {test|api19|debug|release}" >&2
     exit 2
     ;;
 esac
